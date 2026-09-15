@@ -236,7 +236,7 @@
     </div>
     <div class="flabel">付款方式</div><div class="chips" id="p-pay"></div>
     <div class="flabel">折扣</div><div class="chips" id="p-dchips"></div>
-    <div class="payrow" style="margin-top:8px"><span>小計</span><b class="num" id="p-sub">0</b></div>
+    <div class="flabel">備註（選填）</div><input id="p-note" placeholder="例：統編 / 外帶 / 客訴處理" style="width:100%;box-sizing:border-box;background:var(--raise);border:1px solid var(--line);color:var(--text);font-family:inherit;font-size:13.5px;padding:9px;border-radius:8px;margin-bottom:6px"><div class="payrow" style="margin-top:8px"><span>小計</span><b class="num" id="p-sub">0</b></div>
     <div class="payrow disc" id="p-discrow" style="display:none"><span>折扣</span><b class="num" id="p-disc">0</b></div>
     <div class="payrow"><span>應收</span><b class="num" id="p-due">0</b></div>
     <div class="payrow"><span>實收</span><b class="num" id="p-got">0</b></div>
@@ -350,7 +350,7 @@ async function done(){
   const labels=DISCOUNTS.filter(d=>activeDisc[d.id]).map(d=>d.label);
   const payLabel=(PAYMENTS.find(p=>p.id===curPay)||{}).label||'';
   const dining=curDining;const tbl=(dining==='內用')?curTable:null;const heads=(dining==='內用'&&tbl)?curSeats:(dining==='內用'?curSeats:0);
-  const tx={id:now(),time:new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false}),items:order.map(o=>({n:o.n,sub:o.sub,p:o.p,q:o.q})),subtotal:sub,discount:cut,discLabels:labels,total:due,got:g,change:g-due,payment:payLabel,dining,table:tbl,heads};
+  const tx={id:now(),time:new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false}),items:order.map(o=>({n:o.n,sub:o.sub,p:o.p,q:o.q})),subtotal:sub,discount:cut,discLabels:labels,total:due,got:g,change:g-due,payment:payLabel,dining,table:tbl,heads,note:(document.getElementById("p-note")?document.getElementById("p-note").value.trim():"")};
   todayTx.push(tx);await saveDayTx(today(),todayTx);
   dayIndex[today()]=Object.assign(dayIndex[today()]||{},{sum:todayTx.reduce((a,x)=>a+x.total,0),cnt:todayTx.length});
   if(dining==='內用'&&tbl&&!tableBusy(tbl)){todaySeat.push({id:newId('s'),table:tbl,headcount:curSeats,seatedAt:now(),leftAt:null,txId:tx.id});await saveSeat(today(),todaySeat);}
@@ -386,7 +386,7 @@ function renderDay(){
   const m={};todayTx.forEach(t=>t.items.forEach(i=>{const k=i.n+(i.sub?' · '+i.sub:'');m[k]=m[k]||{q:0,s:0};m[k].q+=i.q;m[k].s+=i.p*i.q;}));
   const rank=Object.entries(m).sort((a,b)=>b[1].s-a[1].s);
   $('#d-rank').innerHTML=rank.length?rank.map(([k,v],i)=>`<li><span class="rk num">${i+1}</span><span class="rn">${esc(k)}</span><span class="rq num">${v.q} 份</span><span class="rs num">${money(v.s)}</span></li>`).join(''):`<li style="color:var(--muted);justify-content:center">今天還沒有紀錄</li>`;
-  $('#d-tx').innerHTML=todayTx.length?[...todayTx].reverse().map(t=>`<li class="tx"><div class="tx-hd"><span class="t num">${t.time}</span><button class="tx-void" data-void="${t.id}">刪除</button><span class="a num">${money(t.total)}</span></div><div class="tx-it">${t.items.map(i=>`${esc(i.n)}${i.sub?'('+esc(i.sub)+')':''} ×${i.q}`).join('　')}${t.discount?`　<span style="color:var(--sweet)">折-${money(t.discount)}</span>`:''}<br>${esc(t.dining||'')}${t.table?' '+t.table+'桌':''}${t.heads?' '+t.heads+'人':''}　${esc(t.payment||'')}</div></li>`).join(''):`<li class="tx" style="color:var(--muted);text-align:center;font-size:13px">今天還沒有交易</li>`;
+  $('#d-tx').innerHTML=todayTx.length?[...todayTx].reverse().map(t=>`<li class="tx"><div class="tx-hd"><span class="t num">${t.time}</span><button class="tx-void" data-void="${t.id}">刪除</button><span class="a num">${money(t.total)}</span></div><div class="tx-it">${t.items.map(i=>`${esc(i.n)}${i.sub?'('+esc(i.sub)+')':''} ×${i.q}`).join('　')}${t.discount?`　<span style="color:var(--sweet)">折-${money(t.discount)}</span>`:''}<br>${esc(t.dining||'')}${t.table?' '+t.table+'桌':''}${t.heads?' '+t.heads+'人':''}　${esc(t.payment||'')}${t.note?'　📝'+esc(t.note):''}</div></li>`).join(''):`<li class="tx" style="color:var(--muted);text-align:center;font-size:13px">今天還沒有交易</li>`;
 }
 function renderHist(){
   const days=Object.keys(dayIndex).sort().reverse();const sum=days.reduce((a,d)=>a+(dayIndex[d].sum||0),0);
@@ -462,6 +462,96 @@ if ('serviceWorker' in navigator) {
 if (window.caches && caches.keys) {
   caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
 }
+</script>
+
+<script>
+/* ===== 桌單收單 + 月份業績 + 完整備份（附加整合） ===== */
+(function(){
+  var ORDER_SYNC='https://script.google.com/macros/s/AKfycbwDsdsOZLqQJdxfw9DE0GO94BYdDewNKFYUxarRzFhBkQLoFHxy7ZC_jGLL_JVmI96l/exec';
+  var pendingTable=null, ordersData={};
+  var tabs=document.querySelector('.viewtabs');
+  var setBtn=tabs.querySelector('[data-v="set"]');
+  var oBtn=document.createElement('button'); oBtn.setAttribute('role','tab'); oBtn.setAttribute('aria-selected','false'); oBtn.dataset.v='orders'; oBtn.textContent='桌單';
+  tabs.insertBefore(oBtn,setBtn);
+  var vset=document.getElementById('v-set');
+  var vo=document.createElement('section'); vo.className='view'; vo.id='v-orders';
+  vo.innerHTML='<div class="sect"><h3>客人送來的桌單</h3><div id="o-list"></div></div><p class="note">客人手機點餐送出後，這裡每幾秒自動更新。「帶入結帳」把品項放進點餐畫面，可再加品項/折扣後收款，結完該桌自動清空；「取消訂單」直接清掉不結帳。</p>';
+  vset.parentNode.insertBefore(vo,vset);
+
+  function switchTo(v){
+    document.querySelectorAll('.viewtabs button').forEach(function(x){ x.setAttribute('aria-selected', x.dataset.v===v?'true':'false'); });
+    document.querySelectorAll('.view').forEach(function(sec){ sec.classList.toggle('on', sec.id==='v-'+v); });
+  }
+  document.querySelectorAll('.viewtabs button').forEach(function(b){
+    b.addEventListener('click',function(){ if(b.dataset.v==='orders'){ switchTo('orders'); renderOrders(); } });
+  });
+
+  function fetchOrders(cb){ if(!ORDER_SYNC){cb&&cb();return;} fetch(ORDER_SYNC).then(function(r){return r.json();}).then(function(d){ ordersData=(d&&d.orders)||{}; cb&&cb(); }).catch(function(){cb&&cb();}); }
+  function pendingCount(){ var n=0; for(var k in ordersData){ if(ordersData[k]&&ordersData[k].items&&ordersData[k].items.length) n++; } return n; }
+  function updBadge(){ if(!oBtn) return; var n=pendingCount(); oBtn.textContent = n? ('桌單 ('+n+')') : '桌單'; }
+  function renderOrders(){
+    fetchOrders(function(){
+      var el=document.getElementById('o-list'); if(!el) return;
+      var keys=Object.keys(ordersData).filter(function(k){return ordersData[k]&&ordersData[k].items&&ordersData[k].items.length;}).sort();
+      if(!keys.length){ el.innerHTML='<p class="note" style="text-align:center">目前沒有待處理的桌單</p>'; updBadge(); return; }
+      el.innerHTML=keys.map(function(k){ var o=ordersData[k]; var tot=o.items.reduce(function(a,i){return a+(i.p||0)*(i.q||0);},0);
+        var its=o.items.map(function(i){return esc(i.n)+(i.sub?'('+esc(i.sub)+')':'')+' ×'+i.q;}).join('　');
+        return '<div class="tx"><div class="tx-hd"><span class="t">'+esc(k)+' 號桌</span><span class="a num">'+money(tot)+'</span></div><div class="tx-it">'+its+'</div><div style="display:flex;gap:8px;margin-top:10px"><button class="btn" style="flex:1;background:var(--tea);color:#10211A;padding:11px" data-load="'+esc(k)+'">帶入結帳</button><button class="btn" style="background:transparent;color:var(--alert);border:1px solid var(--line);padding:11px 14px" data-cancel="'+esc(k)+'">取消訂單</button></div></div>';
+      }).join('');
+      updBadge();
+    });
+  }
+  document.getElementById('o-list').addEventListener('click',function(e){
+    var l=e.target.closest('[data-load]'); if(l){ loadOrder(l.getAttribute('data-load')); return; }
+    var c=e.target.closest('[data-cancel]'); if(c){ var t=c.getAttribute('data-cancel'); if(confirm(t+' 號桌的訂單要直接取消（不結帳）嗎？')) clearTable(t); return; }
+  });
+  function loadOrder(t){
+    var o=ordersData[t]; if(!o||!o.items||!o.items.length){ toast('這桌沒有訂單'); return; }
+    o.items.forEach(function(i){ var hit=order.find(function(x){return x.n===i.n&&(x.sub||'')===(i.sub||'')&&x.p===i.p;}); if(hit) hit.q+=(i.q||1); else order.push({id:newId('o'),n:i.n,sub:i.sub||'',p:i.p||0,q:i.q||1}); });
+    pendingTable=t; renderOrder(); renderGrid(); switchTo('sell'); toast(t+' 號桌訂單已帶入，確認後收款');
+  }
+  function clearTable(t){ if(ORDER_SYNC){ fetch(ORDER_SYNC,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'clear',table:t})}).catch(function(){}); } if(ordersData[t]) delete ordersData[t]; renderOrders(); }
+
+  var pok=document.getElementById('p-ok'); var origDone=pok.onclick;
+  pok.onclick=function(ev){ var r=origDone?origDone.call(this,ev):undefined; Promise.resolve(r).then(function(){ if(pendingTable){ clearTable(pendingTable); pendingTable=null; } }).catch(function(){ if(pendingTable){ clearTable(pendingTable); pendingTable=null; } }); };
+  var clrBtn=document.getElementById('clr'); if(clrBtn) clrBtn.addEventListener('click',function(){ pendingTable=null; });
+  var payBtn=document.getElementById('pay'); var origPay=payBtn.onclick; payBtn.onclick=function(e){ var n=document.getElementById('p-note'); if(n) n.value=''; return origPay?origPay.call(this,e):undefined; };
+
+  setInterval(function(){ if(document.getElementById('v-orders').classList.contains('on')) renderOrders(); },4000);
+  setInterval(function(){ fetchOrders(updBadge); },15000);
+  fetchOrders(updBadge);
+
+  renderHist=function(){
+    var days=Object.keys(dayIndex).filter(function(d){return dayIndex[d].sum;}).sort().reverse();
+    var sum=days.reduce(function(a,d){return a+(dayIndex[d].sum||0);},0);
+    document.getElementById('h-sum').textContent=money(sum);
+    document.getElementById('h-days').textContent=days.length;
+    var months={};
+    days.forEach(function(d){ var m=d.slice(0,7); months[m]=months[m]||{sum:0,cnt:0,days:[]}; months[m].sum+=dayIndex[d].sum||0; months[m].cnt+=dayIndex[d].cnt||0; months[m].days.push(d); });
+    var mk=Object.keys(months).sort().reverse();
+    document.getElementById('h-list').innerHTML = mk.length? mk.map(function(m){ var x=months[m];
+      var daysHtml=x.days.map(function(d){ var y=dayIndex[d]; var dine=(y.guests||y.sess)?('　來客 '+(y.guests||0)+' · 桌次 '+(y.sess||0)):''; return '<div class="day"><div><div class="d num">'+d+'</div><div class="c num">'+(y.cnt||0)+' 筆'+dine+'</div></div><div class="s num">'+money(y.sum||0)+'</div></div>'; }).join('');
+      var mlabel=m.slice(0,4)+'年'+parseInt(m.slice(5,7),10)+'月';
+      return '<div style="margin-bottom:8px"><button class="day mhead" data-m="'+m+'" style="width:100%;cursor:pointer"><div><div class="d num">'+mlabel+'</div><div class="c num">'+x.cnt+' 筆 · '+x.days.length+' 天</div></div><div class="s num">'+money(x.sum)+'</div></button><div data-mdays="'+m+'" style="display:none;margin-top:6px">'+daysHtml+'</div></div>';
+    }).join('') : '<p class="note">還沒有營業紀錄。</p>';
+  };
+  document.getElementById('h-list').addEventListener('click',function(e){ var h=e.target.closest('[data-m]'); if(!h) return; var m=h.getAttribute('data-m'); var box=document.querySelector('[data-mdays="'+m+'"]'); if(box) box.style.display = box.style.display==='none'?'block':'none'; });
+
+  var vh=document.getElementById('v-hist');
+  var bsect=document.createElement('div'); bsect.className='sect';
+  bsect.innerHTML='<h3>完整備份 / 轉移</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bk-exp" style="flex:1;background:var(--raise);color:var(--text);border:1px solid var(--line)">匯出完整備份</button><label class="btn" style="flex:1;background:var(--raise);color:var(--text);border:1px solid var(--line);text-align:center;cursor:pointer">匯入備份<input type="file" id="bk-imp" accept="application/json" style="display:none"></label></div><p class="note">搬到新網址時：舊網址「匯出完整備份」，新網址「匯入備份」，營業紀錄與設定就轉移過去。</p>';
+  vh.appendChild(bsect);
+  document.getElementById('bk-exp').onclick=async function(){
+    var out={}, prefixes=['sales:','seat:','cfg:'];
+    for(var pi=0;pi<prefixes.length;pi++){ var r=await storage.list(prefixes[pi]); if(r&&r.keys){ for(var i=0;i<r.keys.length;i++){ var g=await storage.get(r.keys[i]); if(g) out[r.keys[i]]=g.value; } } }
+    var blob=new Blob([JSON.stringify(out)],{type:'application/json'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='結帳系統備份_'+today()+'.json'; a.click(); toast('已匯出完整備份');
+  };
+  document.getElementById('bk-imp').onchange=function(){
+    var f=this.files&&this.files[0]; if(!f) return; var rd=new FileReader();
+    rd.onload=async function(){ try{ var o=JSON.parse(rd.result); var ks=Object.keys(o); if(!confirm('將匯入 '+ks.length+' 筆資料（會覆蓋同名資料），確定？')) return; for(var i=0;i<ks.length;i++){ await storage.set(ks[i], o[ks[i]]); } alert('已匯入，將重新載入'); location.reload(); }catch(e){ alert('讀取失敗'); } };
+    rd.readAsText(f);
+  };
+})();
 </script>
 </body>
 </html>
