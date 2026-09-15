@@ -491,19 +491,21 @@ if (window.caches && caches.keys) {
   function fetchOrders(cb){ if(!ORDER_SYNC){cb&&cb();return;} fetch(ORDER_SYNC).then(function(r){return r.json();}).then(function(d){ ordersData=(d&&d.orders)||{}; cb&&cb(); }).catch(function(){cb&&cb();}); }
   function pendingCount(){ var n=0; for(var k in ordersData){ if(ordersData[k]&&ordersData[k].items&&ordersData[k].items.length) n++; } return n; }
   function updBadge(){ if(!oBtn) return; var n=pendingCount(); oBtn.textContent = n? ('桌單 ('+n+')') : '桌單'; }
-  function renderOrders(){
-    fetchOrders(function(){
-      var el=document.getElementById('o-list'); if(!el) return;
-      var keys=Object.keys(ordersData).filter(function(k){return ordersData[k]&&ordersData[k].items&&ordersData[k].items.length;}).sort();
-      if(!keys.length){ el.innerHTML='<p class="note" style="text-align:center">目前沒有待處理的桌單</p>'; updBadge(); return; }
-      el.innerHTML=keys.map(function(k){ var o=ordersData[k]; var tot=o.items.reduce(function(a,i){return a+(i.p||0)*(i.q||0);},0);
-        var its=o.items.map(function(i){return esc(i.n)+(i.sub?'('+esc(i.sub)+')':'')+' ×'+i.q;}).join('　');
-        return '<div class="tx"><div class="tx-hd"><span class="t">'+esc(k)+' 號桌</span><span class="a num">'+money(tot)+'</span></div><div class="tx-it">'+its+'</div><div style="display:flex;gap:8px;margin-top:10px"><button class="btn" style="flex:1;background:var(--tea);color:#10211A;padding:11px" data-load="'+esc(k)+'">帶入結帳</button><button class="btn" style="background:transparent;color:var(--alert);border:1px solid var(--line);padding:11px 14px" data-cancel="'+esc(k)+'">取消訂單</button></div></div>';
-      }).join('');
-      updBadge();
-    });
+  function renderList(){
+    var el=document.getElementById('o-list'); if(!el) return;
+    var keys=Object.keys(ordersData).filter(function(k){return ordersData[k]&&ordersData[k].items&&ordersData[k].items.length;}).sort();
+    var upd='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><button class="btn" id="o-refresh" style="background:var(--raise);color:var(--text);border:1px solid var(--line);padding:8px 14px;font-size:13px">立即刷新</button><span class="note" id="o-updated" style="margin:0"></span></div>';
+    if(!keys.length){ el.innerHTML=upd+'<p class="note" style="text-align:center">目前沒有待處理的桌單</p>'; stampUpdated(); updBadge(); return; }
+    el.innerHTML=upd+keys.map(function(k){ var o=ordersData[k]; var tot=o.items.reduce(function(a,i){return a+(i.p||0)*(i.q||0);},0);
+      var its=o.items.map(function(i){return esc(i.n)+(i.sub?'('+esc(i.sub)+')':'')+' ×'+i.q;}).join('　');
+      return '<div class="tx"><div class="tx-hd"><span class="t">'+esc(k)+' 號桌</span><span class="a num">'+money(tot)+'</span></div><div class="tx-it">'+its+'</div><div style="display:flex;gap:8px;margin-top:10px"><button class="btn" style="flex:1;background:var(--tea);color:#10211A;padding:11px" data-load="'+esc(k)+'">帶入結帳</button><button class="btn" style="background:transparent;color:var(--alert);border:1px solid var(--line);padding:11px 14px" data-cancel="'+esc(k)+'">取消訂單</button></div></div>';
+    }).join('');
+    stampUpdated(); updBadge();
   }
+  function stampUpdated(){ var u=document.getElementById('o-updated'); if(u){ var d=new Date(); u.textContent='更新於 '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2); } }
+  function renderOrders(){ fetchOrders(function(){ renderList(); }); }
   document.getElementById('o-list').addEventListener('click',function(e){
+    if(e.target.closest('#o-refresh')){ renderOrders(); return; }
     var l=e.target.closest('[data-load]'); if(l){ loadOrder(l.getAttribute('data-load')); return; }
     var c=e.target.closest('[data-cancel]'); if(c){ var t=c.getAttribute('data-cancel'); if(confirm(t+' 號桌的訂單要直接取消（不結帳）嗎？')) clearTable(t); return; }
   });
@@ -512,15 +514,24 @@ if (window.caches && caches.keys) {
     o.items.forEach(function(i){ var hit=order.find(function(x){return x.n===i.n&&(x.sub||'')===(i.sub||'')&&x.p===i.p;}); if(hit) hit.q+=(i.q||1); else order.push({id:newId('o'),n:i.n,sub:i.sub||'',p:i.p||0,q:i.q||1}); });
     pendingTable=t; renderOrder(); renderGrid(); switchTo('sell'); toast(t+' 號桌訂單已帶入，確認後收款');
   }
-  function clearTable(t){ if(ORDER_SYNC){ fetch(ORDER_SYNC,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'clear',table:t})}).catch(function(){}); } if(ordersData[t]) delete ordersData[t]; renderOrders(); }
+  function clearTable(t){
+    if(ordersData[t]) delete ordersData[t];
+    renderList();            // 先立刻從畫面移除，不等雲端
+    if(ORDER_SYNC){ fetch(ORDER_SYNC,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'clear',table:t})}).catch(function(){}); }
+    setTimeout(function(){ fetchOrders(function(){ if(document.getElementById('v-orders').classList.contains('on')) renderList(); else updBadge(); }); }, 2500);
+  }
 
   var pok=document.getElementById('p-ok'); var origDone=pok.onclick;
   pok.onclick=function(ev){ var r=origDone?origDone.call(this,ev):undefined; Promise.resolve(r).then(function(){ if(pendingTable){ clearTable(pendingTable); pendingTable=null; } }).catch(function(){ if(pendingTable){ clearTable(pendingTable); pendingTable=null; } }); };
   var clrBtn=document.getElementById('clr'); if(clrBtn) clrBtn.addEventListener('click',function(){ pendingTable=null; });
   var payBtn=document.getElementById('pay'); var origPay=payBtn.onclick; payBtn.onclick=function(e){ var n=document.getElementById('p-note'); if(n) n.value=''; var r=origPay?origPay.call(this,e):undefined; if(pendingTable){ try{ curDining='內用'; curTable=parseInt(pendingTable,10); renderPaySheet(); updPay(); }catch(err){} } return r; };
 
-  setInterval(function(){ if(document.getElementById('v-orders').classList.contains('on')) renderOrders(); },4000);
-  setInterval(function(){ fetchOrders(updBadge); },15000);
+  // 桌單分頁在前景：每 2.5 秒抓一次
+  setInterval(function(){ if(document.getElementById('v-orders').classList.contains('on')) renderOrders(); },2500);
+  // 背景（在別的分頁）：每 12 秒抓一次更新未處理數
+  setInterval(function(){ if(!document.getElementById('v-orders').classList.contains('on')) fetchOrders(updBadge); },12000);
+  // 保溫：每 45 秒輕觸一次，降低 Apps Script 冷啟動（睡著）機率
+  setInterval(function(){ if(ORDER_SYNC){ fetch(ORDER_SYNC,{mode:'no-cors',cache:'no-store'}).catch(function(){}); } },45000);
   fetchOrders(updBadge);
 
   renderHist=function(){
