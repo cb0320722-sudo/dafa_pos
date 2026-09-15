@@ -273,6 +273,7 @@ const now=()=>Date.now();
 function fmtDur(ms){let s=Math.floor(ms/1000);const h=Math.floor(s/3600);s-=h*3600;const m=Math.floor(s/60);s-=m*60;const p=x=>String(x).padStart(2,'0');return h>0?`${h}:${p(m)}:${p(s)}`:`${p(m)}:${p(s)}`;}
 
 let MENU=[],DISCOUNTS=[],PAYMENTS=[],TCFG={count:3,max:2},SYNC={url:'',device:''};
+const BUILTIN_SYNC_URL='https://script.google.com/macros/s/AKfycbx9ECNT39rW422xhow56penqaEIOeT2gjm2JQAYaBJx7cmGSMyJ8IScNfG4VrS-ngL0/exec';
 let cat=0,order=[],todayTx=[],todaySeat=[],dayIndex={},got='';
 let activeDisc={},curDining='內用',curTable=null,curSeats=1,curPay=null;
 let uid=Date.now();const newId=p=>p+(uid++).toString(36);
@@ -283,6 +284,7 @@ async function loadCfg(){
   try{const p=await storage.get('cfg:pay');PAYMENTS=p?JSON.parse(p.value):JSON.parse(JSON.stringify(SEED_PAY));}catch(e){PAYMENTS=JSON.parse(JSON.stringify(SEED_PAY));}
   try{const t=await storage.get('cfg:tcfg');TCFG=t?JSON.parse(t.value):Object.assign({},SEED_TCFG);}catch(e){TCFG=Object.assign({},SEED_TCFG);}
   try{const u=await storage.get('cfg:sync');SYNC=u?JSON.parse(u.value):{url:'',device:''};}catch(e){SYNC={url:'',device:''};}
+  SYNC.url=BUILTIN_SYNC_URL;
   if(!Array.isArray(MENU)||!MENU.length)MENU=JSON.parse(JSON.stringify(SEED_MENU));
   if(!Array.isArray(PAYMENTS))PAYMENTS=JSON.parse(JSON.stringify(SEED_PAY));
   if(!TCFG||!TCFG.count)TCFG=Object.assign({},SEED_TCFG);
@@ -402,7 +404,7 @@ async function csv(){
 /* settings */
 let setCat=0;
 function renderSettings(){renderSetCatpick();renderSetItems();renderSetCats();renderSetPay();renderSetDisc();renderTcfg();renderSyncCfg();}
-function renderSyncCfg(){$('#sync-url').value=SYNC.url||'';$('#sync-device').value=SYNC.device||'';}
+function renderSyncCfg(){$('#sync-url').value=SYNC.url||'';$('#sync-url').readOnly=true;$('#sync-url').style.opacity='0.65';$('#sync-device').value=SYNC.device||'';}
 function renderSetCatpick(){if(setCat>=MENU.length)setCat=0;$('#set-catpick').innerHTML=MENU.map((c,i)=>`<button aria-selected="${i===setCat}" style="--c:${c.color}" data-sc="${i}">${esc(c.cat)}</button>`).join('');}
 function renderSetItems(){const c=MENU[setCat];if(!c){$('#set-items').innerHTML='';return;}$('#set-items').innerHTML=c.items.map((it,i)=>`<div class="erow"><input class="nm" data-f="n" data-i="${i}" value="${esc(it.n)}"><input class="sub" data-f="sub" data-i="${i}" value="${esc(it.sub||it.note||'')}" placeholder="備註"><input class="price num" data-f="p" data-i="${i}" value="${it.p}" inputmode="numeric"><button class="del" data-di="${i}">刪除</button></div>`).join('')||`<p class="note" style="margin:0">此分類還沒有品項</p>`;}
 function renderSetCats(){$('#set-cats').innerHTML=MENU.map((c,i)=>`<div class="erow"><input class="nm" data-cf="name" data-ci="${i}" value="${esc(c.cat)}"><div class="swatches" data-ci="${i}">${PALETTE.map(col=>`<span class="sw" style="background:${col}" data-col="${col}" aria-selected="${col===c.color}"></span>`).join('')}</div><button class="del" data-dc="${i}">刪除</button></div>`).join('');}
@@ -443,7 +445,7 @@ $('#set-disc').addEventListener('change',async e=>{const el=e.target;if(el.datas
 $('#set-disc').onclick=async e=>{const b=e.target.closest('[data-dd]');if(!b)return;DISCOUNTS.splice(+b.dataset.dd,1);await saveDisc();renderSetDisc();toast('已刪除折扣');};
 $('#nd-add').onclick=async ()=>{const label=$('#nd-label').value.trim(),type=$('#nd-type').value,value=parseInt($('#nd-value').value||'0',10);if(!label){toast('請輸入折扣名稱');return;}if(!value){toast('請輸入數值');return;}DISCOUNTS.push({id:newId('d'),label,type,value});await saveDisc();$('#nd-label').value='';$('#nd-value').value='';renderSetDisc();toast('已新增折扣');};
 $('#tc-save').onclick=async ()=>{let c=parseInt($('#tc-count').value||'0',10),m=parseInt($('#tc-max').value||'0',10);if(!c||c<1){toast('桌數需≥1');return;}if(!m||m<1){toast('人數上限需≥1');return;}TCFG={count:c,max:m};await saveTcfg();renderTables();toast('已儲存桌位設定');};
-$('#sync-save').onclick=async ()=>{SYNC={url:$('#sync-url').value.trim(),device:$('#sync-device').value.trim()};await storage.set('cfg:sync',JSON.stringify(SYNC));toast('已儲存同步設定');syncToday();};
+$('#sync-save').onclick=async ()=>{SYNC={url:BUILTIN_SYNC_URL,device:$('#sync-device').value.trim()};await storage.set('cfg:sync',JSON.stringify(SYNC));toast('已儲存同步設定');syncToday();};
 $('#sync-now').onclick=()=>syncRecent(7);
 
 $$('.viewtabs button').forEach(b=>b.onclick=()=>{$$('.viewtabs button').forEach(x=>x.setAttribute('aria-selected',x===b));$$('.view').forEach(v=>v.classList.remove('on'));$('#v-'+b.dataset.v).classList.add('on');if(b.dataset.v==='table')renderTables();if(b.dataset.v==='day')renderDay();if(b.dataset.v==='hist')renderHist();if(b.dataset.v==='set')renderSettings();});
@@ -515,7 +517,7 @@ if (window.caches && caches.keys) {
   var pok=document.getElementById('p-ok'); var origDone=pok.onclick;
   pok.onclick=function(ev){ var r=origDone?origDone.call(this,ev):undefined; Promise.resolve(r).then(function(){ if(pendingTable){ clearTable(pendingTable); pendingTable=null; } }).catch(function(){ if(pendingTable){ clearTable(pendingTable); pendingTable=null; } }); };
   var clrBtn=document.getElementById('clr'); if(clrBtn) clrBtn.addEventListener('click',function(){ pendingTable=null; });
-  var payBtn=document.getElementById('pay'); var origPay=payBtn.onclick; payBtn.onclick=function(e){ var n=document.getElementById('p-note'); if(n) n.value=''; return origPay?origPay.call(this,e):undefined; };
+  var payBtn=document.getElementById('pay'); var origPay=payBtn.onclick; payBtn.onclick=function(e){ var n=document.getElementById('p-note'); if(n) n.value=''; var r=origPay?origPay.call(this,e):undefined; if(pendingTable){ try{ curDining='內用'; curTable=parseInt(pendingTable,10); renderPaySheet(); updPay(); }catch(err){} } return r; };
 
   setInterval(function(){ if(document.getElementById('v-orders').classList.contains('on')) renderOrders(); },4000);
   setInterval(function(){ fetchOrders(updBadge); },15000);
