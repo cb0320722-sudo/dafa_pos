@@ -279,6 +279,7 @@ const money=n=>Math.round(n).toLocaleString('en-US');
 const now=()=>Date.now();
 function fmtDur(ms){let s=Math.floor(ms/1000);const h=Math.floor(s/3600);s-=h*3600;const m=Math.floor(s/60);s-=m*60;const p=x=>String(x).padStart(2,'0');return h>0?`${h}:${p(m)}:${p(s)}`:`${p(m)}:${p(s)}`;}
 
+const APP_VERSION='2026-09-30-01';  // 每次更新 POS HTML 改這個號碼，裝置會自動抓最新版
 let MENU=[],DISCOUNTS=[],PAYMENTS=[],TCFG={count:3,max:2},SYNC={url:'',device:''};
 const BUILTIN_SYNC_URL='https://script.google.com/macros/s/AKfycbx9ECNT39rW422xhow56penqaEIOeT2gjm2JQAYaBJx7cmGSMyJ8IScNfG4VrS-ngL0/exec';
 let cat=0,order=[],todayTx=[],todaySeat=[],dayIndex={},got='';
@@ -466,6 +467,23 @@ let tid;function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.ad
 setInterval(tickTimers,1000);setInterval(function(){syncToday();},180000);
 
 (async function init(){await loadCfg();renderCats();renderGrid();renderOrder();$('#today').textContent=today();await loadIndex();todayTx=await loadDay(today());todaySeat=await loadSeat(today());renderTop();renderDay();renderTables();syncToday();})();
+
+// ===== 版本自動更新：偵測到新版就更新，但絕不打斷進行中的訂單/收款 =====
+(function(){
+  var pendingUpdate=false;
+  function isBusy(){ var s=document.getElementById('scrim'); return (typeof order!=='undefined'&&order.length>0)||(s&&s.classList.contains('on')); }
+  function applyIfPending(){ if(pendingUpdate&&!isBusy()){ location.reload(true); } }
+  function checkVersion(){
+    fetch(location.pathname+'?_v='+Date.now(),{cache:'no-store'})
+      .then(function(r){return r.text();})
+      .then(function(html){ var m=html.match(/APP_VERSION='([^']+)'/); if(m&&m[1]&&m[1]!==APP_VERSION){ pendingUpdate=true; applyIfPending(); } })
+      .catch(function(){});
+  }
+  setTimeout(checkVersion,20000);          // 開啟後 20 秒檢查
+  setInterval(checkVersion,300000);         // 之後每 5 分鐘檢查
+  setInterval(applyIfPending,15000);        // 閒置(沒在點餐/收款)時盡快套用
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) checkVersion(); });
+})();
 </script>
 <script>
 /* 自動清除舊的離線快取與 Service Worker，讓每次更新都能即時生效 */
